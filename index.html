@@ -107,6 +107,7 @@
   .mon-slot.warning { border-color: var(--yellow); }
   .mon-slot.full { border-color: var(--red); }
   @keyframes slotGlow { 0%{box-shadow:0 0 12px rgba(34,197,94,.4)} 100%{box-shadow:none} }
+  .mon-slot .ms-terminal { font-size: 11px; font-weight: 600; color: var(--cyan); margin-bottom: 4px; }
   .mon-slot .ms-time { font-family: monospace; font-size: 20px; color: var(--cyan); font-weight: 600; }
   .mon-slot .ms-date { font-size: 10px; color: var(--muted); margin-bottom: 2px; }
   .mon-slot .ms-pct { font-size: 24px; font-weight: 700; margin-top: 4px; }
@@ -337,9 +338,15 @@
 <!-- Monitor-Panel -->
 <div class="monitor-panel">
   <div class="monitor-field">
-    <label>Terminal</label>
+    <label>Terminal 1</label>
     <select id="monTerminal">
       <option value="">-- Terminal wählen --</option>
+    </select>
+  </div>
+  <div class="monitor-field">
+    <label>Terminal 2</label>
+    <select id="monTerminal2">
+      <option value="">-- Optional --</option>
     </select>
   </div>
   <div class="monitor-field">
@@ -556,16 +563,22 @@ async function fetchSlots() {
 
 function populateTerminalSelect() {
   const sel = document.getElementById('monTerminal');
+  const sel2 = document.getElementById('monTerminal2');
   if (sel.options.length > 1) return;
   const cur = sel.value;
+  const cur2 = sel2.value;
   while (sel.options.length > 1) sel.remove(1);
+  while (sel2.options.length > 1) sel2.remove(1);
   allData.forEach(t => {
     const opt = document.createElement('option');
     opt.value = t.terminal.code;
     opt.textContent = `${t.terminal.name} (${t.terminal.code})`;
     sel.appendChild(opt);
+    const opt2 = opt.cloneNode(true);
+    sel2.appendChild(opt2);
   });
   if (cur) sel.value = cur;
+  if (cur2) sel2.value = cur2;
 }
 
 function populateTimeSelects() {
@@ -659,7 +672,8 @@ function toggleMonitoring() {
     btn.textContent = '⏹ Stopp';
     btn.classList.add('stop');
     area.classList.add('visible');
-    logMsg(`Überwachung: ${code}`, 'alert');
+    const code2 = document.getElementById('monTerminal2').value;
+    logMsg(`Überwachung: ${code}${code2 ? ' + ' + code2 : ''}`, 'alert');
     renderMonitoring();
   } else {
     btn.textContent = '▶ Überwachen';
@@ -672,73 +686,80 @@ function toggleMonitoring() {
 function renderMonitoring() {
   if (!monitoringActive) return;
 
-  const code = document.getElementById('monTerminal').value;
+  const code1 = document.getElementById('monTerminal').value;
+  const code2 = document.getElementById('monTerminal2').value;
   const fromTime = document.getElementById('monTimeFrom').value;
   const toTime = document.getElementById('monTimeTo').value;
   const ops = getSelectedOps();
 
-  const terminal = allData.find(t => t.terminal.code === code);
-  if (!terminal) return;
+  const terminalCodes = [code1];
+  if (code2 && code2 !== code1) terminalCodes.push(code2);
 
   const fromH = fromTime ? parseInt(fromTime.split(':')[0], 10) : 0;
   const toH = toTime ? parseInt(toTime.split(':')[0], 10) : 23;
 
-  // Basis-Stunde aus Daten finden
-  const firstSlot = terminal.slots[0]?.slotBegin;
-  const baseHour = firstSlot ? new Date(firstSlot).getHours() : 5;
+  const allMatches = [];
 
-  const matches = [];
-  terminal.slots.forEach((slot, idx) => {
-    const slotDate = new Date(slot.slotBegin);
-    const slotH = slotDate.getHours();
+  for (const code of terminalCodes) {
+    const terminal = allData.find(t => t.terminal.code === code);
+    if (!terminal) continue;
 
-    // Zeitbereich prüfen
-    if (fromH <= toH) {
-      if (slotH < fromH || slotH >= toH) return;
-    } else {
-      if (slotH < fromH && slotH >= toH) return;
-    }
+    terminal.slots.forEach((slot) => {
+      const slotDate = new Date(slot.slotBegin);
+      const slotH = slotDate.getHours();
 
-    const info = slot.info?.[0];
-    if (!info) return;
+      if (fromH <= toH) {
+        if (slotH < fromH || slotH >= toH) return;
+      } else {
+        if (slotH < fromH && slotH >= toH) return;
+      }
 
-    let isFree = false;
-    let detailParts = [];
+      const info = slot.info?.[0];
+      if (!info) return;
 
-    if (ops.length > 0 && info.subInfo && info.subInfo.length > 0) {
-      // Nach konkreten Operationen prüfen
-      for (const op of ops) {
-        const cats = OP_MAP[op] || [];
-        for (const si of info.subInfo) {
-          if (cats.includes(si.category)) {
-            const siFree = si.slotAvailability === 0 || si.slotAvailability === 3;
-            if (siFree) isFree = true;
-            detailParts.push(`${si.category}: ${siFree ? 'Frei' : Math.round(si.slotUsageInPercent) + '%'}`);
+      let isFree = false;
+      let detailParts = [];
+
+      if (ops.length > 0 && info.subInfo && info.subInfo.length > 0) {
+        for (const op of ops) {
+          const cats = OP_MAP[op] || [];
+          for (const si of info.subInfo) {
+            if (cats.includes(si.category)) {
+              const siFree = si.slotAvailability === 0 || si.slotAvailability === 3;
+              if (siFree) isFree = true;
+              detailParts.push(`${si.category}: ${siFree ? 'Frei' : Math.round(si.slotUsageInPercent) + '%'}`);
+            }
           }
         }
+      } else {
+        isFree = info.slotAvailability === 0 || info.slotAvailability === 3;
+        detailParts.push(isFree ? 'Frei' : `${Math.round(info.slotUsageInPercent)}% Auslastung`);
       }
-    } else {
-      // Ohne Operationsfilter — Gesamtstatus
-      isFree = info.slotAvailability === 0 || info.slotAvailability === 3;
-      detailParts.push(isFree ? 'Frei' : `${Math.round(info.slotUsageInPercent)}% Auslastung`);
-    }
 
-    matches.push({
-      slot, info, slotDate, slotH, isFree, detailParts
+      allMatches.push({
+        slot, info, slotDate, slotH, isFree, detailParts,
+        terminalName: terminal.terminal.name,
+        terminalCode: code
+      });
     });
+  }
+
+  // Sort by terminal then time
+  allMatches.sort((a, b) => {
+    if (a.terminalCode !== b.terminalCode) return a.terminalCode.localeCompare(b.terminalCode);
+    return a.slotH - b.slotH;
   });
 
-  // Rendering
   const grid = document.getElementById('monitoredGrid');
   const badge = document.getElementById('monCount');
-  badge.textContent = matches.length;
+  badge.textContent = allMatches.length;
 
-  if (matches.length === 0) {
+  if (allMatches.length === 0) {
     grid.innerHTML = '<div class="no-slots-msg">Keine Slots im gewählten Bereich. Parameter ändern.</div>';
     return;
   }
 
-  grid.innerHTML = matches.map(m => {
+  grid.innerHTML = allMatches.map(m => {
     const time = fmtTime(m.slot.slotBegin);
     const date = m.slotDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
     const pct = Math.round(m.info.slotUsageInPercent);
@@ -746,7 +767,8 @@ function renderMonitoring() {
     const opsText = ops.length > 0 ? ops.map(o => OP_LABELS[o]).join(', ') : '';
 
     return `
-      <div class="mon-slot ${cls}">
+      <div class="mon-slot ${cls}" onclick="openBookingModal('${m.terminalCode}', '${m.slot.slotBegin}')">
+        <div class="ms-terminal">${m.terminalName}</div>
         <div class="ms-date">${date}</div>
         <div class="ms-time">${time}</div>
         <div class="ms-pct">${m.isFree ? 'FREI' : pct + '%'}</div>
@@ -795,6 +817,7 @@ function render() {
   let freeSlots = 0, fullSlots = 0, warningSlots = 0;
 
   const monCode = monitoringActive ? document.getElementById('monTerminal').value : '';
+  const monCode2 = monitoringActive ? document.getElementById('monTerminal2').value : '';
   const monFrom = document.getElementById('monTimeFrom').value;
   const monTo = document.getElementById('monTimeTo').value;
   const monFromH = monFrom ? parseInt(monFrom.split(':')[0], 10) : 0;
@@ -810,6 +833,10 @@ function render() {
     return true;
   });
 
+  // Count operation-specific loads
+  let fullInFree = 0, fullOutFree = 0, emptyInFree = 0, emptyOutFree = 0;
+  let fullInTotal = 0, fullOutTotal = 0, emptyInTotal = 0, emptyOutTotal = 0;
+
   for (const t of allData) {
     for (const slot of t.slots) {
       const info = slot.info?.[0];
@@ -817,6 +844,17 @@ function render() {
       if (info.slotAvailability === 2) fullSlots++;
       else if (info.slotAvailability === 1) warningSlots++;
       else freeSlots++;
+
+      // Count by operation type if subInfo available
+      if (info.subInfo && info.subInfo.length > 0) {
+        for (const si of info.subInfo) {
+          const siFree = si.slotAvailability === 0 || si.slotAvailability === 3;
+          if (OP_MAP.full_in.includes(si.category)) { fullInTotal++; if (siFree) fullInFree++; }
+          if (OP_MAP.full_out.includes(si.category)) { fullOutTotal++; if (siFree) fullOutFree++; }
+          if (OP_MAP.empty_in.includes(si.category)) { emptyInTotal++; if (siFree) emptyInFree++; }
+          if (OP_MAP.empty_out.includes(si.category)) { emptyOutTotal++; if (siFree) emptyOutFree++; }
+        }
+      }
     }
   }
 
@@ -825,6 +863,10 @@ function render() {
     <div class="summary-card green"><div class="value">${freeSlots}</div><div class="label">Frei</div></div>
     <div class="summary-card yellow"><div class="value">${warningSlots}</div><div class="label">Warnung</div></div>
     <div class="summary-card red"><div class="value">${fullSlots}</div><div class="label">Belegt</div></div>
+    <div class="summary-card green"><div class="value">${fullInTotal > 0 ? fullInFree + '/' + fullInTotal : '-'}</div><div class="label">Voll einliefern</div></div>
+    <div class="summary-card green"><div class="value">${fullOutTotal > 0 ? fullOutFree + '/' + fullOutTotal : '-'}</div><div class="label">Voll ausliefern</div></div>
+    <div class="summary-card green"><div class="value">${emptyInTotal > 0 ? emptyInFree + '/' + emptyInTotal : '-'}</div><div class="label">Leer einliefern</div></div>
+    <div class="summary-card green"><div class="value">${emptyOutTotal > 0 ? emptyOutFree + '/' + emptyOutTotal : '-'}</div><div class="label">Leer ausliefern</div></div>
   `;
 
   if (filtered.length === 0) {
@@ -845,7 +887,7 @@ function render() {
       const s = getStatusInfo(info.slotAvailability, Math.round(info.slotUsageInPercent));
       const time = fmtTime(slot.slotBegin);
       const pct = Math.min(info.slotUsageInPercent, 100);
-      const inRange = monitoringActive && t.terminal.code === monCode && isSlotInRange(slot.slotBegin, monFromH, monToH);
+      const inRange = monitoringActive && (t.terminal.code === monCode || t.terminal.code === monCode2) && isSlotInRange(slot.slotBegin, monFromH, monToH);
 
       let subHtml = '';
       if (info.subInfo && info.subInfo.length > 0) {
