@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hamburg Slot Monitor</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e6ed;
+    --muted: #8b8fa3;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --cyan: #06b6d4;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header {
+    background: linear-gradient(135deg, #1a1d27, #1e293b);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; position: sticky; top: 0; z-index: 100;
+  }
+  .header h1 { font-size: 17px; font-weight: 600; }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .status-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+  .pulse.error { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .btn {
+    padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 11px; cursor: pointer; transition: all .15s;
+  }
+  .btn:hover { background: #252836; border-color: #3b3f4e; }
+  .btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  .countdown-overlay {
+    position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 200;
+    background: linear-gradient(90deg, var(--cyan), var(--blue));
+    transform-origin: left; transition: transform .5s linear;
+  }
+
+  /* ===== Monitor Panel ===== */
+  .monitor-panel {
+    background: #111520; border-bottom: 1px solid var(--border);
+    padding: 12px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+  }
+  .monitor-field { display: flex; flex-direction: column; gap: 3px; }
+  .monitor-field label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .monitor-field select {
+    padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 12px; min-width: 130px;
+  }
+  .monitor-field select:focus { outline: none; border-color: var(--blue); }
+  .monitor-ops { display: flex; gap: 4px; flex-wrap: wrap; }
+  .op-chip {
+    padding: 3px 8px; border-radius: 14px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; transition: all .15s;
+    white-space: nowrap;
+  }
+  .op-chip.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .op-chip:hover { border-color: #555; }
+  .monitor-btn {
+    padding: 5px 14px; border-radius: 5px; border: 1px solid var(--green);
+    background: transparent; color: var(--green); font-size: 11px; cursor: pointer; font-weight: 600;
+  }
+  .monitor-btn:hover { background: var(--green); color: #000; }
+  .monitor-btn.stop { background: var(--red); border-color: var(--red); color: #fff; }
+
+  /* ===== Monitored Slots ===== */
+  .monitored-area {
+    background: #0a0e14; border-bottom: 1px solid var(--border);
+    padding: 10px 20px; display: none;
+  }
+  .monitored-area.visible { display: block; }
+  .monitored-title {
+    font-size: 12px; color: var(--cyan); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .monitored-title .count-badge {
+    background: var(--green); color: #000; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 10px;
+  }
+  .monitored-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;
+  }
+  .mon-slot {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; transition: all .3s;
+  }
+  .mon-slot.free { border-color: var(--green); background: #0a1a0a; animation: slotGlow 1s ease; }
+  .mon-slot.warning { border-color: var(--yellow); }
+  .mon-slot.full { border-color: var(--red); }
+  @keyframes slotGlow { 0%{box-shadow:0 0 12px rgba(34,197,94,.4)} 100%{box-shadow:none} }
+  .mon-slot .ms-time { font-family: monospace; font-size: 20px; color: var(--cyan); font-weight: 600; }
+  .mon-slot .ms-date { font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+  .mon-slot .ms-pct { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .mon-slot.free .ms-pct { color: var(--green); }
+  .mon-slot.warning .ms-pct { color: var(--yellow); }
+  .mon-slot.full .ms-pct { color: var(--red); }
+  .mon-slot .ms-detail { font-size: 10px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+  .mon-slot .ms-op { font-size: 10px; color: var(--cyan); margin-top: 2px; }
+
+  /* ===== Filter bar ===== */
+  .filter-bar {
+    padding: 8px 20px; display: flex; gap: 5px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); background: var(--card);
+  }
+  .filter-chip {
+    padding: 3px 10px; border-radius: 14px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; transition: all .15s;
+  }
+  .filter-chip.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .filter-chip:hover { border-color: #555; }
+
+  /* ===== Summary ===== */
+  .summary { padding: 12px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .summary-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+  .summary-card .value { font-size: 24px; font-weight: 700; }
+  .summary-card .label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .summary-card.green .value { color: var(--green); }
+  .summary-card.yellow .value { color: var(--yellow); }
+  .summary-card.red .value { color: var(--red); }
+  .summary-card.blue .value { color: var(--cyan); }
+
+  /* ===== Terminal grid ===== */
+  .terminals-grid { padding: 12px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .terminal-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color .2s; }
+  .terminal-card:hover { border-color: #3b3f4e; }
+  .terminal-card.has-free { border-color: var(--green); }
+  .terminal-header { padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+  .terminal-name { font-weight: 600; font-size: 13px; }
+  .terminal-code { font-size: 10px; color: var(--muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+  .terminal-meta { padding: 5px 14px; font-size: 10px; color: var(--muted); display: flex; gap: 12px; border-bottom: 1px solid var(--border); }
+
+  .slots-list { max-height: 300px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #333 transparent; }
+  .slot-row {
+    display: grid; grid-template-columns: 70px 1fr 50px; align-items: center;
+    padding: 4px 14px; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,.03);
+  }
+  .slot-row:hover { background: rgba(255,255,255,.03); }
+  .slot-row.highlighted { background: rgba(34,197,94,.1); border-left: 3px solid var(--green); }
+  .slot-time { font-family: monospace; font-size: 11px; }
+  .slot-bar-wrap { height: 4px; background: rgba(255,255,255,.05); border-radius: 2px; overflow: hidden; margin: 0 6px; }
+  .slot-bar { height: 100%; border-radius: 2px; transition: width .5s; }
+  .slot-status { text-align: right; font-weight: 600; font-size: 10px; }
+
+  .status-free { color: var(--green); }
+  .status-warning { color: var(--yellow); }
+  .status-full { color: var(--red); }
+  .status-unrestricted { color: var(--muted); }
+  .bar-green { background: var(--green); }
+  .bar-yellow { background: var(--yellow); }
+  .bar-red { background: var(--red); }
+  .bar-gray { background: #555; }
+
+  .sub-info { padding: 2px 14px 4px 14px; font-size: 10px; color: var(--muted); }
+  .sub-info-item { display: flex; justify-content: space-between; padding: 1px 0; }
+  .sub-info-item.highlighted { color: var(--green); font-weight: 600; }
+
+  .no-slots-msg { padding: 32px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .log-panel {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--card);
+    border-top: 1px solid var(--border); max-height: 150px; overflow-y: auto;
+    font-family: monospace; font-size: 10px; padding: 6px 14px; display: none; z-index: 99;
+  }
+  .log-panel.visible { display: block; }
+  .log-entry { padding: 1px 0; color: var(--muted); }
+  .log-entry .time { color: #555; margin-right: 6px; }
+  .log-entry.info .msg { color: var(--cyan); }
+  .log-entry.alert .msg { color: var(--green); font-weight: 600; }
+  .log-entry.warn .msg { color: var(--yellow); }
+
+  .notification-toast {
+    position: fixed; top: 60px; right: 20px;
+    background: linear-gradient(135deg, #166534, #14532d);
+    border: 1px solid var(--green); border-radius: 10px;
+    padding: 12px 16px; z-index: 200; display: flex; align-items: center;
+    gap: 8px; animation: slideIn .3s ease; max-width: 400px;
+    box-shadow: 0 8px 32px rgba(34,197,94,.3);
+  }
+  .notification-toast.hidden { display: none; }
+  @keyframes slideIn { from{transform:translateX(120%);opacity:0} to{transform:translateX(0);opacity:1} }
+  .notification-toast .icon { font-size: 20px; }
+  .notification-toast .text { font-size: 11px; line-height: 1.4; }
+  .notification-toast .close { margin-left: auto; cursor: pointer; color: var(--muted); font-size: 14px; }
+
+  .next-refresh { font-size: 10px; color: var(--muted); }
+  .next-refresh .countdown { color: var(--cyan); font-family: monospace; }
+
+  @media (max-width: 768px) {
+    .terminals-grid { grid-template-columns: 1fr; padding: 10px; }
+    .summary { grid-template-columns: repeat(2,1fr); padding: 10px; }
+    .header { padding: 8px 12px; }
+    .monitor-panel { padding: 8px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="countdown-overlay" id="countdownBar"></div>
+
+<div class="header">
+  <h1>&#9875; Hamburg Slot Monitor</h1>
+  <div class="controls">
+    <div class="status-bar">
+      <div class="pulse" id="statusPulse"></div>
+      <span id="statusText">Initialisierung...</span>
+    </div>
+    <div class="next-refresh">
+      Aktualisierung in <span class="countdown" id="countdown">--</span>
+    </div>
+    <button class="btn" id="btnPause" onclick="togglePause()">&#9646;&#9646; Pause</button>
+    <button class="btn" id="btnSound" onclick="toggleSound()">&#128266; Ton</button>
+    <button class="btn" id="btnPush" onclick="requestPush()">&#128276; Push</button>
+    <button class="btn" id="btnLog" onclick="toggleLog()">&#128196; Log</button>
+  </div>
+</div>
+
+<!-- Monitor-Panel -->
+<div class="monitor-panel">
+  <div class="monitor-field">
+    <label>Terminal</label>
+    <select id="monTerminal">
+      <option value="">-- Terminal wählen --</option>
+    </select>
+  </div>
+  <div class="monitor-field">
+    <label>Slot-Beginn</label>
+    <select id="monTimeFrom"></select>
+  </div>
+  <div class="monitor-field">
+    <label>Slot-Ende</label>
+    <select id="monTimeTo"></select>
+  </div>
+  <div class="monitor-field">
+    <label>Operation</label>
+    <div class="monitor-ops">
+      <button class="op-chip" data-op="full_in" onclick="toggleOp(this)">Voll einliefern</button>
+      <button class="op-chip" data-op="full_out" onclick="toggleOp(this)">Voll ausliefern</button>
+      <button class="op-chip" data-op="empty_in" onclick="toggleOp(this)">Leer einliefern</button>
+      <button class="op-chip" data-op="empty_out" onclick="toggleOp(this)">Leer ausliefern</button>
+    </div>
+  </div>
+  <button class="monitor-btn" id="btnStartMon" onclick="toggleMonitoring()">&#9654; Überwachen</button>
+</div>
+
+<!-- Überwachte Slots -->
+<div class="monitored-area" id="monitoredArea">
+  <div class="monitored-title">
+    &#128276; Überwachte Slots
+    <span class="count-badge" id="monCount">0</span>
+  </div>
+  <div class="monitored-grid" id="monitoredGrid"></div>
+</div>
+
+<div class="filter-bar">
+  <button class="filter-chip active" data-filter="all" onclick="setFilter('all')">Alle Terminals</button>
+  <button class="filter-chip" data-filter="free" onclick="setFilter('free')">Freie Slots</button>
+  <button class="filter-chip" data-filter="full" onclick="setFilter('full')">Belegt</button>
+  <button class="filter-chip" data-filter="ham" onclick="setFilter('ham')">Hamburg</button>
+  <button class="filter-chip" data-filter="brv" onclick="setFilter('brv')">Bremerhaven</button>
+  <button class="filter-chip" data-filter="whv" onclick="setFilter('whv')">Wilhelmshaven</button>
+</div>
+
+<div class="summary" id="summary"></div>
+<div class="terminals-grid" id="terminalsGrid"></div>
+<div class="log-panel" id="logPanel"></div>
+
+<div class="notification-toast hidden" id="toast">
+  <span class="icon">&#9989;</span>
+  <div class="text" id="toastText"></div>
+  <span class="close" onclick="hideToast()">&times;</span>
+</div>
+
+<script>
+const API_BASE = 'https://slot.truckgate.de/slot-web/api';
+const MIN_INTERVAL = 45;
+const MAX_INTERVAL = 75;
+
+const OP_MAP = {
+  full_in:  ['Anlieferung', 'GATE B- Anliefern', 'Eingang'],
+  full_out: ['Auslieferung', 'GATE B- Ausliefern', 'Ausgang'],
+  empty_in: ['Anlieferung leer'],
+  empty_out: ['Leerlager', 'HO']
+};
+
+const OP_LABELS = {
+  full_in: 'Voll einliefern',
+  full_out: 'Voll ausliefern',
+  empty_in: 'Leer einliefern',
+  empty_out: 'Leer ausliefern'
+};
+
+let allData = [];
+let currentFilter = 'all';
+let isPaused = false;
+let soundEnabled = false;
+let pushEnabled = false;
+let refreshTimer = null;
+let countdownTimer = null;
+let countdownValue = 0;
+let logVisible = false;
+let previousAvailability = {};
+
+// Monitoring state
+let monitoringActive = false;
+let monPrevState = {};
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// === Ton: drei laute Piepse ===
+function playAlert() {
+  if (!soundEnabled) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(1000, now + i * 0.25);
+      osc.frequency.setValueAtTime(1200, now + i * 0.25 + 0.08);
+      gain.gain.setValueAtTime(0.5, now + i * 0.25);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.25 + 0.18);
+      osc.start(now + i * 0.25);
+      osc.stop(now + i * 0.25 + 0.2);
+    }
+  } catch(e) {}
+}
+
+function sendPush(title, body) {
+  if (!pushEnabled || Notification.permission !== 'granted') return;
+  try { new Notification(title, { body }); } catch(e) {}
+}
+
+function showToast(text) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastText').textContent = text;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 8000);
+}
+
+function hideToast() {
+  document.getElementById('toast').classList.add('hidden');
+}
+
+function logMsg(msg, type = 'info') {
+  const panel = document.getElementById('logPanel');
+  const time = new Date().toLocaleTimeString('de-DE');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry ' + type;
+  entry.innerHTML = `<span class="time">${time}</span><span class="msg">${msg}</span>`;
+  panel.prepend(entry);
+  while (panel.children.length > 200) panel.removeChild(panel.lastChild);
+}
+
+// === Daten laden ===
+async function fetchSlots() {
+  try {
+    const [termRes, slotsRes] = await Promise.all([
+      fetch(`${API_BASE}/terminals`),
+      fetch(`${API_BASE}/slotauslastungen`)
+    ]);
+    if (!termRes.ok || !slotsRes.ok) throw new Error('API-Fehler');
+
+    const terminals = await termRes.json();
+    const slots = await slotsRes.json();
+
+    allData = slots.map(s => {
+      const t = terminals.find(t => t.code === s.terminal.code) || s.terminal;
+      return { ...s, terminal: { ...s.terminal, slotURL: t.slotURL } };
+    });
+
+    populateTerminalSelect();
+    detectNewFreeSlots();
+    render();
+    if (monitoringActive) renderMonitoring();
+    updateStatus(true);
+    logMsg(`Aktualisiert: ${allData.length} Terminals`);
+  } catch (err) {
+    updateStatus(false);
+    logMsg('Fehler: ' + err.message, 'warn');
+  }
+}
+
+function populateTerminalSelect() {
+  const sel = document.getElementById('monTerminal');
+  if (sel.options.length > 1) return;
+  const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  allData.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.terminal.code;
+    opt.textContent = `${t.terminal.name} (${t.terminal.code})`;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
+}
+
+function populateTimeSelects() {
+  const fromSel = document.getElementById('monTimeFrom');
+  const toSel = document.getElementById('monTimeTo');
+  for (let h = 0; h < 24; h++) {
+    fromSel.add(new Option(`${String(h).padStart(2,'0')}:00`, `${String(h).padStart(2,'0')}:00`));
+    toSel.add(new Option(`${String(h+1 > 23 ? 0 : h+1).padStart(2,'0')}:00`, `${String(h+1 > 23 ? 0 : h+1).padStart(2,'0')}:00`));
+  }
+  fromSel.value = '05:00';
+  toSel.value = '20:00';
+}
+
+// === Neue freie Slots erkennen ===
+function detectNewFreeSlots() {
+  const alerts = [];
+  for (const t of allData) {
+    for (const slot of t.slots) {
+      const info = slot.info?.[0];
+      if (!info) continue;
+      const key = `${t.terminal.code}_${slot.slotBegin}`;
+      const prev = previousAvailability[key];
+      const isFree = info.slotAvailability === 0 || info.slotAvailability === 3;
+      const wasFree = prev === 0 || prev === 3;
+      if (isFree && !wasFree && prev !== undefined) {
+        alerts.push(`${t.terminal.name} ${fmtTime(slot.slotBegin)}`);
+      }
+      previousAvailability[key] = info.slotAvailability;
+    }
+  }
+  if (alerts.length > 0) {
+    const text = `Freie Slots: ${alerts.slice(0, 3).join('; ')}`;
+    playAlert();
+    sendPush('Hamburg Slot Monitor', text);
+    showToast(text);
+    logMsg(text, 'alert');
+  }
+}
+
+// === Überwachung ===
+function toggleMonitoring() {
+  monitoringActive = !monitoringActive;
+  const btn = document.getElementById('btnStartMon');
+  const area = document.getElementById('monitoredArea');
+
+  if (monitoringActive) {
+    const code = document.getElementById('monTerminal').value;
+    if (!code) {
+      showToast('Terminal wählen!');
+      monitoringActive = false;
+      return;
+    }
+    monPrevState = {};
+    btn.textContent = '⏹ Stopp';
+    btn.classList.add('stop');
+    area.classList.add('visible');
+    logMsg(`Überwachung: ${code}`, 'alert');
+    renderMonitoring();
+  } else {
+    btn.textContent = '▶ Überwachen';
+    btn.classList.remove('stop');
+    area.classList.remove('visible');
+    logMsg('Überwachung gestoppt', 'warn');
+  }
+}
+
+function renderMonitoring() {
+  if (!monitoringActive) return;
+
+  const code = document.getElementById('monTerminal').value;
+  const fromTime = document.getElementById('monTimeFrom').value;
+  const toTime = document.getElementById('monTimeTo').value;
+  const ops = getSelectedOps();
+
+  const terminal = allData.find(t => t.terminal.code === code);
+  if (!terminal) return;
+
+  const fromH = fromTime ? parseInt(fromTime.split(':')[0], 10) : 0;
+  const toH = toTime ? parseInt(toTime.split(':')[0], 10) : 23;
+
+  // Basis-Stunde aus Daten finden
+  const firstSlot = terminal.slots[0]?.slotBegin;
+  const baseHour = firstSlot ? new Date(firstSlot).getHours() : 5;
+
+  const matches = [];
+  terminal.slots.forEach((slot, idx) => {
+    const slotDate = new Date(slot.slotBegin);
+    const slotH = slotDate.getHours();
+
+    // Zeitbereich prüfen
+    if (fromH <= toH) {
+      if (slotH < fromH || slotH >= toH) return;
+    } else {
+      if (slotH < fromH && slotH >= toH) return;
+    }
+
+    const info = slot.info?.[0];
+    if (!info) return;
+
+    let isFree = false;
+    let detailParts = [];
+
+    if (ops.length > 0 && info.subInfo && info.subInfo.length > 0) {
+      // Nach konkreten Operationen prüfen
+      for (const op of ops) {
+        const cats = OP_MAP[op] || [];
+        for (const si of info.subInfo) {
+          if (cats.includes(si.category)) {
+            const siFree = si.slotAvailability === 0 || si.slotAvailability === 3;
+            if (siFree) isFree = true;
+            detailParts.push(`${si.category}: ${siFree ? 'Frei' : Math.round(si.slotUsageInPercent) + '%'}`);
+          }
+        }
+      }
+    } else {
+      // Ohne Operationsfilter — Gesamtstatus
+      isFree = info.slotAvailability === 0 || info.slotAvailability === 3;
+      detailParts.push(isFree ? 'Frei' : `${Math.round(info.slotUsageInPercent)}% Auslastung`);
+    }
+
+    matches.push({
+      slot, info, slotDate, slotH, isFree, detailParts
+    });
+  });
+
+  // Rendering
+  const grid = document.getElementById('monitoredGrid');
+  const badge = document.getElementById('monCount');
+  badge.textContent = matches.length;
+
+  if (matches.length === 0) {
+    grid.innerHTML = '<div class="no-slots-msg">Keine Slots im gewählten Bereich. Parameter ändern.</div>';
+    return;
+  }
+
+  grid.innerHTML = matches.map(m => {
+    const time = fmtTime(m.slot.slotBegin);
+    const date = m.slotDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    const pct = Math.round(m.info.slotUsageInPercent);
+    const cls = m.isFree ? 'free' : (m.info.slotAvailability === 1 ? 'warning' : 'full');
+    const opsText = ops.length > 0 ? ops.map(o => OP_LABELS[o]).join(', ') : '';
+
+    return `
+      <div class="mon-slot ${cls}">
+        <div class="ms-date">${date}</div>
+        <div class="ms-time">${time}</div>
+        <div class="ms-pct">${m.isFree ? 'FREI' : pct + '%'}</div>
+        <div class="ms-detail">${m.detailParts.join(' | ')}</div>
+        ${opsText ? `<div class="ms-op">${opsText}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function getSelectedOps() {
+  const ops = [];
+  document.querySelectorAll('.op-chip.active').forEach(el => ops.push(el.dataset.op));
+  return ops;
+}
+
+function toggleOp(el) {
+  el.classList.toggle('active');
+}
+
+// === Hilfsfunktionen ===
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function getStatusInfo(availability, percent) {
+  switch (availability) {
+    case 0: return { label: `${percent}%`, cls: 'status-free', bar: 'bar-green' };
+    case 1: return { label: `${percent}%`, cls: 'status-warning', bar: 'bar-yellow' };
+    case 2: return { label: '100%', cls: 'status-full', bar: 'bar-red' };
+    case 3: return { label: 'Frei', cls: 'status-unrestricted', bar: 'bar-gray' };
+    default: return { label: '--', cls: 'status-unrestricted', bar: 'bar-gray' };
+  }
+}
+
+function isSlotInRange(slotBegin, fromH, toH) {
+  const h = new Date(slotBegin).getHours();
+  if (fromH <= toH) return h >= fromH && h < toH;
+  return h >= fromH || h < toH;
+}
+
+// === Haupttabelle rendern ===
+function render() {
+  const grid = document.getElementById('terminalsGrid');
+  const summaryEl = document.getElementById('summary');
+  let freeSlots = 0, fullSlots = 0, warningSlots = 0;
+
+  const monCode = monitoringActive ? document.getElementById('monTerminal').value : '';
+  const monFrom = document.getElementById('monTimeFrom').value;
+  const monTo = document.getElementById('monTimeTo').value;
+  const monFromH = monFrom ? parseInt(monFrom.split(':')[0], 10) : 0;
+  const monToH = monTo ? parseInt(monTo.split(':')[0], 10) : 23;
+
+  const filtered = allData.filter(t => {
+    if (currentFilter === 'all') return true;
+    if (currentFilter === 'ham') return t.terminal.standortenGruppenCodes?.includes('HAM');
+    if (currentFilter === 'brv') return t.terminal.standortenGruppenCodes?.includes('BRV');
+    if (currentFilter === 'whv') return t.terminal.standortenGruppenCodes?.includes('WHV');
+    if (currentFilter === 'free') return t.slots.some(s => { const a = s.info?.[0]?.slotAvailability; return a === 0 || a === 3; });
+    if (currentFilter === 'full') return t.slots.some(s => s.info?.[0]?.slotAvailability === 2);
+    return true;
+  });
+
+  for (const t of allData) {
+    for (const slot of t.slots) {
+      const info = slot.info?.[0];
+      if (!info) continue;
+      if (info.slotAvailability === 2) fullSlots++;
+      else if (info.slotAvailability === 1) warningSlots++;
+      else freeSlots++;
+    }
+  }
+
+  summaryEl.innerHTML = `
+    <div class="summary-card blue"><div class="value">${allData.length}</div><div class="label">Terminals</div></div>
+    <div class="summary-card green"><div class="value">${freeSlots}</div><div class="label">Frei</div></div>
+    <div class="summary-card yellow"><div class="value">${warningSlots}</div><div class="label">Warnung</div></div>
+    <div class="summary-card red"><div class="value">${fullSlots}</div><div class="label">Belegt</div></div>
+  `;
+
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="no-slots-msg">Keine Terminals</div>';
+    return;
+  }
+
+  grid.innerHTML = filtered.map(t => {
+    const hasFree = t.slots.some(s => { const a = s.info?.[0]?.slotAvailability; return a === 0 || a === 3; });
+    const dz = t.terminal.durchlaufzeiten;
+    const meta = [];
+    if (dz) meta.push(`Zyklus: ${dz.durchlaufzeitLkw} Min`);
+    meta.push(`Aktualisiert: ${t.lastUpdate || '--'}`);
+
+    const slotsHtml = t.slots.map(slot => {
+      const info = slot.info?.[0];
+      if (!info) return '';
+      const s = getStatusInfo(info.slotAvailability, Math.round(info.slotUsageInPercent));
+      const time = fmtTime(slot.slotBegin);
+      const pct = Math.min(info.slotUsageInPercent, 100);
+      const inRange = monitoringActive && t.terminal.code === monCode && isSlotInRange(slot.slotBegin, monFromH, monToH);
+
+      let subHtml = '';
+      if (info.subInfo && info.subInfo.length > 0) {
+        const ops = getSelectedOps();
+        subHtml = '<div class="sub-info">' + info.subInfo.map(si => {
+          const ss = getStatusInfo(si.slotAvailability, Math.round(si.slotUsageInPercent));
+          const hi = ops.some(op => (OP_MAP[op] || []).includes(si.category));
+          return `<div class="sub-info-item ${hi ? 'highlighted' : ''}"><span>${si.category}</span><span class="${ss.cls}">${ss.label}</span></div>`;
+        }).join('') + '</div>';
+      }
+
+      return `
+        <div class="slot-row ${inRange ? 'highlighted' : ''}">
+          <span class="slot-time">${time}</span>
+          <div class="slot-bar-wrap"><div class="slot-bar ${s.bar}" style="width:${pct}%"></div></div>
+          <span class="slot-status ${s.cls}">${s.label}</span>
+        </div>
+        ${subHtml}
+      `;
+    }).join('');
+
+    return `
+      <div class="terminal-card ${hasFree ? 'has-free' : ''}">
+        <div class="terminal-header">
+          <span class="terminal-name">${t.terminal.name}</span>
+          <span class="terminal-code">${t.terminal.code}</span>
+        </div>
+        <div class="terminal-meta">${meta.map(p => `<span>${p}</span>`).join('')}</div>
+        <div class="slots-list">${slotsHtml}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// === Status ===
+function updateStatus(ok) {
+  const p = document.getElementById('statusPulse');
+  const t = document.getElementById('statusText');
+  p.className = ok ? 'pulse' : 'pulse error';
+  t.textContent = ok ? `Verbunden — ${new Date().toLocaleTimeString('de-DE')}` : 'Verbindungsfehler';
+}
+
+// === Aktualisierungsplan ===
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+  const next = MIN_INTERVAL + Math.floor(Math.random() * (MAX_INTERVAL - MIN_INTERVAL + 1));
+  countdownValue = next;
+  const bar = document.getElementById('countdownBar');
+
+  countdownTimer = setInterval(() => {
+    countdownValue--;
+    document.getElementById('countdown').textContent = countdownValue + 's';
+    bar.style.transform = `scaleX(${Math.max(0, countdownValue / next)})`;
+    if (countdownValue <= 0) clearInterval(countdownTimer);
+  }, 1000);
+
+  document.getElementById('countdown').textContent = countdownValue + 's';
+  bar.style.transform = 'scaleX(1)';
+
+  refreshTimer = setTimeout(async () => {
+    if (!isPaused) await fetchSlots();
+    scheduleRefresh();
+  }, next * 1000);
+}
+
+function togglePause() {
+  isPaused = !isPaused;
+  const btn = document.getElementById('btnPause');
+  btn.textContent = isPaused ? '▶ Start' : '⏸ Pause';
+  btn.classList.toggle('active', isPaused);
+  if (!isPaused) { fetchSlots(); scheduleRefresh(); }
+  else { clearTimeout(refreshTimer); clearInterval(countdownTimer); document.getElementById('countdown').textContent = '--'; logMsg('Pause', 'warn'); }
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  const btn = document.getElementById('btnSound');
+  btn.classList.toggle('active', soundEnabled);
+  btn.innerHTML = soundEnabled ? '🔊 Ton AN' : '🔇 Ton AUS';
+  if (soundEnabled) playAlert();
+}
+
+async function requestPush() {
+  if (!('Notification' in window)) { showToast('Push nicht unterstützt'); return; }
+  if (Notification.permission === 'granted') { pushEnabled = !pushEnabled; updatePushButton(); return; }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') { pushEnabled = true; updatePushButton(); sendPush('Hamburg Slot Monitor', 'Push aktiviert!'); }
+}
+
+function updatePushButton() {
+  const btn = document.getElementById('btnPush');
+  btn.classList.toggle('active', pushEnabled);
+  btn.innerHTML = pushEnabled ? '🔔 Push AN' : '🔔 Push';
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === f));
+  render();
+}
+
+function toggleLog() {
+  logVisible = !logVisible;
+  document.getElementById('logPanel').classList.toggle('visible', logVisible);
+  document.getElementById('btnLog').classList.toggle('active', logVisible);
+}
+
+// === Initialisierung ===
+populateTimeSelects();
+fetchSlots();
+scheduleRefresh();
+</script>
+</body>
+</html>
