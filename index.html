@@ -271,6 +271,10 @@
     outline: none; border-color: var(--blue);
   }
   .modal-field textarea { min-height: 60px; resize: vertical; }
+  .modal-hint { font-size: 10px; color: var(--muted); margin-top: 2px; font-style: italic; }
+  .modal-divider { border-top: 1px solid var(--border); margin: 16px 0 12px; }
+  .modal-section-title { font-size: 12px; font-weight: 600; color: var(--cyan); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .modal-status {
     padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
     text-align: center; margin-top: 10px;
@@ -408,6 +412,85 @@
       <h2>&#128197; Slot buchen</h2>
       <button class="modal-close" onclick="closeBookingModal()">&times;</button>
     </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Terminal</label>
+        <div class="value" id="bookTerminal">--</div>
+      </div>
+      <div class="modal-field">
+        <label>Datum & Uhrzeit</label>
+        <div class="value highlight" id="bookDateTime">--</div>
+      </div>
+      <div class="modal-field">
+        <label>Verfügbarkeit</label>
+        <div class="modal-status" id="bookStatus">--</div>
+      </div>
+
+      <div class="modal-divider"></div>
+      <div class="modal-section-title">Buchungsdaten</div>
+
+      <div class="modal-field">
+        <label>Container-Nummer (optional)</label>
+        <input type="text" id="bookContainer" placeholder="z.B. MSKU1234567" maxlength="11" />
+        <div class="modal-hint">Bei Leer-Container oft ohne Nummer</div>
+      </div>
+
+      <div class="modal-row">
+        <div class="modal-field">
+          <label>Container-Größe</label>
+          <select id="bookSize">
+            <option value="20">20'</option>
+            <option value="40" selected>40'</option>
+            <option value="40hc">40' HC</option>
+            <option value="45">45'</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label>Reefer</label>
+          <select id="bookReefer">
+            <option value="no">Nein</option>
+            <option value="yes">Ja</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-field">
+        <label>Operation</label>
+        <select id="bookOperation">
+          <option value="full_in">Voll einliefern (Anlieferung)</option>
+          <option value="full_out">Voll ausliefern (Auslieferung)</option>
+          <option value="empty_in">Leer einliefern (Anlieferung leer)</option>
+          <option value="empty_out">Leer ausliefern (Leerlager)</option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label>Referenznummer (BL/Booking)</label>
+        <input type="text" id="bookRef" placeholder="B/L-Nummer oder Booking-Referenz" />
+      </div>
+
+      <div class="modal-field">
+        <label>LKW-Kennzeichen</label>
+        <input type="text" id="bookPlate" placeholder="z.B. HH-AB 1234" />
+      </div>
+
+      <div class="modal-field">
+        <label>Fahrer / Spedition</label>
+        <input type="text" id="bookDriver" placeholder="Name oder Speditionsname" />
+      </div>
+
+      <div class="modal-field">
+        <label>Bemerkung</label>
+        <textarea id="bookNote" placeholder="Optionale Anmerkungen..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn" onclick="closeBookingModal()">Abbrechen</button>
+      <button class="modal-btn secondary" onclick="openTruckgate()">&#128279; Auf truckgate.de buchen</button>
+      <button class="modal-btn primary" onclick="confirmBooking()">&#10003; Speichern</button>
+    </div>
+  </div>
+</div>
     <div class="modal-body">
       <div class="modal-field">
         <label>Terminal</label>
@@ -1035,6 +1118,15 @@ function openBookingModal(terminalCode, slotBegin) {
 
   currentBookingData = { terminalCode, slotBegin, terminal: terminal.terminal.name };
 
+  // Reset form fields
+  document.getElementById('bookContainer').value = '';
+  document.getElementById('bookRef').value = '';
+  document.getElementById('bookPlate').value = '';
+  document.getElementById('bookDriver').value = '';
+  document.getElementById('bookNote').value = '';
+  document.getElementById('bookSize').value = '40';
+  document.getElementById('bookReefer').value = 'no';
+
   document.getElementById('bookingModal').classList.add('visible');
   logMsg(`Buchungsformular: ${terminal.terminal.name} ${timeStr}`);
 }
@@ -1044,18 +1136,62 @@ function closeBookingModal() {
   currentBookingData = null;
 }
 
+function openTruckgate() {
+  if (!currentBookingData) return;
+
+  const container = document.getElementById('bookContainer').value.trim();
+  const size = document.getElementById('bookSize').value;
+  const reefer = document.getElementById('bookReefer').value;
+  const op = document.getElementById('bookOperation').value;
+  const ref = document.getElementById('bookRef').value.trim();
+  const plate = document.getElementById('bookPlate').value.trim();
+  const driver = document.getElementById('bookDriver').value.trim();
+
+  // Build query params for web.truckgate.de
+  const params = new URLSearchParams();
+  params.set('terminal', currentBookingData.terminalCode);
+  params.set('slot', currentBookingData.slotBegin);
+  params.set('operation', op);
+  params.set('size', size);
+  params.set('reefer', reefer);
+  if (container) params.set('container', container);
+  if (ref) params.set('ref', ref);
+  if (plate) params.set('plate', plate);
+  if (driver) params.set('driver', driver);
+
+  const url = `https://web.truckgate.de/booking?${params.toString()}`;
+
+  logMsg(`Weiterleitung: web.truckgate.de (${currentBookingData.terminal} ${fmtTime(currentBookingData.slotBegin)})`);
+  showToast('Öffne web.truckgate.de...');
+
+  window.open(url, '_blank');
+}
+
 function confirmBooking() {
   if (!currentBookingData) return;
 
+  const container = document.getElementById('bookContainer').value.trim();
+  const size = document.getElementById('bookSize').value;
+  const reefer = document.getElementById('bookReefer').value;
   const op = document.getElementById('bookOperation').value;
+  const ref = document.getElementById('bookRef').value.trim();
   const plate = document.getElementById('bookPlate').value.trim();
+  const driver = document.getElementById('bookDriver').value.trim();
   const note = document.getElementById('bookNote').value.trim();
 
   const opLabel = OP_LABELS[op] || op;
-  const msg = `Buchung: ${currentBookingData.terminal} — ${fmtTime(currentBookingData.slotBegin)} [${opLabel}]${plate ? ' | ' + plate : ''}${note ? ' | ' + note : ''}`;
+  const reeferLabel = reefer === 'yes' ? ' + Reefer' : '';
+  const sizeLabel = size === '40hc' ? "40'HC" : size + "'";
+
+  let msg = `Buchung: ${currentBookingData.terminal} — ${fmtTime(currentBookingData.slotBegin)} | ${opLabel} | ${sizeLabel}${reeferLabel}`;
+  if (container) msg += ` | CN: ${container}`;
+  if (ref) msg += ` | Ref: ${ref}`;
+  if (plate) msg += ` | ${plate}`;
+  if (driver) msg += ` | ${driver}`;
+  if (note) msg += ` | ${note}`;
 
   logMsg(msg, 'alert');
-  showToast(`Buchung registriert: ${fmtTime(currentBookingData.slotBegin)}`);
+  showToast(`Daten gespeichert: ${fmtTime(currentBookingData.slotBegin)}`);
   sendPush('Hamburg Slot Monitor', msg);
 
   closeBookingModal();
