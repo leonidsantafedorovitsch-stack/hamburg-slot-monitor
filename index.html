@@ -232,6 +232,66 @@
   }
   .alert-banner .alert-dismiss:hover { background: rgba(255,255,255,.1); }
 
+  /* Booking Modal */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.7); z-index: 300; display: none;
+    align-items: center; justify-content: center;
+    animation: fadeIn .2s ease;
+  }
+  .modal-overlay.visible { display: flex; }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    width: 420px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+    animation: modalSlide .3s ease;
+  }
+  @keyframes modalSlide { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .modal-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-header h2 { font-size: 16px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; color: var(--muted); font-size: 20px;
+    cursor: pointer; padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 20px; }
+  .modal-field { margin-bottom: 14px; }
+  .modal-field label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+  .modal-field .value { font-size: 14px; font-weight: 500; }
+  .modal-field .value.highlight { color: var(--cyan); font-family: monospace; font-size: 18px; }
+  .modal-field select, .modal-field input, .modal-field textarea {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit;
+  }
+  .modal-field select:focus, .modal-field input:focus, .modal-field textarea:focus {
+    outline: none; border-color: var(--blue);
+  }
+  .modal-field textarea { min-height: 60px; resize: vertical; }
+  .modal-status {
+    padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    text-align: center; margin-top: 10px;
+  }
+  .modal-status.free { background: rgba(34,197,94,.15); color: var(--green); border: 1px solid var(--green); }
+  .modal-status.warning { background: rgba(234,179,8,.15); color: var(--yellow); border: 1px solid var(--yellow); }
+  .modal-status.full { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid var(--red); }
+  .modal-footer {
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .modal-btn {
+    padding: 8px 18px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .modal-btn:hover { background: #252836; }
+  .modal-btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .modal-btn.primary:hover { background: #2563eb; }
+  .modal-btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+
+  .slot-row { cursor: pointer; }
+
   .next-refresh { font-size: 10px; color: var(--muted); }
   .next-refresh .countdown { color: var(--cyan); font-family: monospace; }
 
@@ -332,6 +392,51 @@
   <span class="icon">&#9989;</span>
   <div class="text" id="toastText"></div>
   <span class="close" onclick="hideToast()">&times;</span>
+</div>
+
+<!-- Booking Modal -->
+<div class="modal-overlay" id="bookingModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>&#128197; Slot buchen</h2>
+      <button class="modal-close" onclick="closeBookingModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Terminal</label>
+        <div class="value" id="bookTerminal">--</div>
+      </div>
+      <div class="modal-field">
+        <label>Datum & Uhrzeit</label>
+        <div class="value highlight" id="bookDateTime">--</div>
+      </div>
+      <div class="modal-field">
+        <label>Verfügbarkeit</label>
+        <div class="modal-status" id="bookStatus">--</div>
+      </div>
+      <div class="modal-field">
+        <label>Operation</label>
+        <select id="bookOperation">
+          <option value="full_in">Voll einliefern (Anlieferung)</option>
+          <option value="full_out">Voll ausliefern (Auslieferung)</option>
+          <option value="empty_in">Leer einliefern (Anlieferung leer)</option>
+          <option value="empty_out">Leer ausliefern (Leerlager)</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label>LKW-Kennzeichen</label>
+        <input type="text" id="bookPlate" placeholder="z.B. HH-AB 1234" />
+      </div>
+      <div class="modal-field">
+        <label>Bemerkung</label>
+        <textarea id="bookNote" placeholder="Optionale Anmerkungen..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn" onclick="closeBookingModal()">Abbrechen</button>
+      <button class="modal-btn primary" onclick="confirmBooking()">&#10003; Buchung bestätigen</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -753,7 +858,7 @@ function render() {
       }
 
       return `
-        <div class="slot-row ${inRange ? 'highlighted' : ''}">
+        <div class="slot-row ${inRange ? 'highlighted' : ''}" onclick="openBookingModal('${t.terminal.code}', '${slot.slotBegin}')">
           <span class="slot-time">${time}</span>
           <div class="slot-bar-wrap"><div class="slot-bar ${s.bar}" style="width:${pct}%"></div></div>
           <span class="slot-status ${s.cls}">${s.label}</span>
@@ -848,6 +953,79 @@ function toggleLog() {
   document.getElementById('logPanel').classList.toggle('visible', logVisible);
   document.getElementById('btnLog').classList.toggle('active', logVisible);
 }
+
+// === Booking Modal ===
+let currentBookingData = null;
+
+function openBookingModal(terminalCode, slotBegin) {
+  const terminal = allData.find(t => t.terminal.code === terminalCode);
+  if (!terminal) return;
+
+  const slot = terminal.slots.find(s => s.slotBegin === slotBegin);
+  if (!slot) return;
+
+  const info = slot.info?.[0];
+  if (!info) return;
+
+  const slotDate = new Date(slotBegin);
+  const dateStr = slotDate.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = fmtTime(slotBegin);
+  const pct = Math.round(info.slotUsageInPercent);
+
+  let statusCls, statusText;
+  if (info.slotAvailability === 0 || info.slotAvailability === 3) {
+    statusCls = 'free';
+    statusText = `Verfügbar — ${info.slotAvailability === 3 ? 'Keine Einschränkung' : pct + '% Auslastung'}`;
+  } else if (info.slotAvailability === 1) {
+    statusCls = 'warning';
+    statusText = `Warnung — ${pct}% Auslastung`;
+  } else {
+    statusCls = 'full';
+    statusText = `Belegt — 100% Auslastung`;
+  }
+
+  document.getElementById('bookTerminal').textContent = `${terminal.terminal.name} (${terminalCode})`;
+  document.getElementById('bookDateTime').textContent = `${dateStr} ${timeStr}`;
+
+  const statusEl = document.getElementById('bookStatus');
+  statusEl.textContent = statusText;
+  statusEl.className = `modal-status ${statusCls}`;
+
+  currentBookingData = { terminalCode, slotBegin, terminal: terminal.terminal.name };
+
+  document.getElementById('bookingModal').classList.add('visible');
+  logMsg(`Buchungsformular: ${terminal.terminal.name} ${timeStr}`);
+}
+
+function closeBookingModal() {
+  document.getElementById('bookingModal').classList.remove('visible');
+  currentBookingData = null;
+}
+
+function confirmBooking() {
+  if (!currentBookingData) return;
+
+  const op = document.getElementById('bookOperation').value;
+  const plate = document.getElementById('bookPlate').value.trim();
+  const note = document.getElementById('bookNote').value.trim();
+
+  const opLabel = OP_LABELS[op] || op;
+  const msg = `Buchung: ${currentBookingData.terminal} — ${fmtTime(currentBookingData.slotBegin)} [${opLabel}]${plate ? ' | ' + plate : ''}${note ? ' | ' + note : ''}`;
+
+  logMsg(msg, 'alert');
+  showToast(`Buchung registriert: ${fmtTime(currentBookingData.slotBegin)}`);
+  sendPush('Hamburg Slot Monitor', msg);
+
+  closeBookingModal();
+}
+
+document.getElementById('bookingModal').addEventListener('click', function(e) {
+  if (e.target === this) closeBookingModal();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeBookingModal();
+});
 
 // === Initialisierung ===
 function initDateSelect() {
