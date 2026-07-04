@@ -58,7 +58,14 @@
     padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border);
     background: var(--bg); color: var(--text); font-size: 12px; min-width: 130px;
   }
-  .monitor-field select:focus { outline: none; border-color: var(--blue); }
+  .monitor-field select:focus, .monitor-field input:focus { outline: none; border-color: var(--blue); }
+  .monitor-field input[type="date"] {
+    padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 12px; min-width: 130px;
+  }
+  .monitor-field input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+  }
   .monitor-ops { display: flex; gap: 4px; flex-wrap: wrap; }
   .op-chip {
     padding: 3px 8px; border-radius: 14px; border: 1px solid var(--border);
@@ -274,6 +281,10 @@
     </select>
   </div>
   <div class="monitor-field">
+    <label>Datum</label>
+    <input type="date" id="monDate" />
+  </div>
+  <div class="monitor-field">
     <label>Slot-Beginn</label>
     <select id="monTimeFrom"></select>
   </div>
@@ -407,9 +418,12 @@ function logMsg(msg, type = 'info') {
 // === Daten laden ===
 async function fetchSlots() {
   try {
+    const selectedDate = document.getElementById('monDate').value;
+    const dateParam = selectedDate ? `?datum=${selectedDate}` : '';
+
     const [termRes, slotsRes] = await Promise.all([
       fetch(`${API_BASE}/terminals`),
-      fetch(`${API_BASE}/slotauslastungen`)
+      fetch(`${API_BASE}/slotauslastungen${dateParam}`)
     ]);
     if (!termRes.ok || !slotsRes.ok) throw new Error('API-Fehler');
 
@@ -834,6 +848,32 @@ function toggleLog() {
 }
 
 // === Initialisierung ===
+function initDateSelect() {
+  const dateInput = document.getElementById('monDate');
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  dateInput.value = `${yyyy}-${mm}-${dd}`;
+  dateInput.min = `${yyyy}-${mm}-${dd}`;
+
+  // Allow selecting next 7 days
+  const maxDate = new Date(today);
+  maxDate.setDate(maxDate.getDate() + 7);
+  const maxYYYY = maxDate.getFullYear();
+  const maxMM = String(maxDate.getMonth() + 1).padStart(2, '0');
+  const maxDD = String(maxDate.getDate()).padStart(2, '0');
+  dateInput.max = `${maxYYYY}-${maxMM}-${maxDD}`;
+
+  dateInput.addEventListener('change', () => {
+    previousAvailability = {};
+    monPrevState = {};
+    fetchSlots();
+    logMsg(`Datum geändert: ${dateInput.value}`);
+  });
+}
+
+initDateSelect();
 populateTimeSelects();
 fetchSlots();
 scheduleRefresh();
