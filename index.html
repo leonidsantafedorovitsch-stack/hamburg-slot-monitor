@@ -282,6 +282,12 @@
   .modal-status.free { background: rgba(34,197,94,.15); color: var(--green); border: 1px solid var(--green); }
   .modal-status.warning { background: rgba(234,179,8,.15); color: var(--yellow); border: 1px solid var(--yellow); }
   .modal-status.full { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid var(--red); }
+  .login-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600;
+  }
+  .login-badge.conroo { background: rgba(59,130,246,.15); color: var(--blue); border: 1px solid var(--blue); }
+  .login-badge.passify { background: rgba(168,85,247,.15); color: #a855f7; border: 1px solid #a855f7; }
   .modal-footer {
     padding: 14px 20px; border-top: 1px solid var(--border);
     display: flex; gap: 8px; justify-content: flex-end;
@@ -416,6 +422,10 @@
       <div class="modal-field">
         <label>Terminal</label>
         <div class="value" id="bookTerminal">--</div>
+      </div>
+      <div class="modal-field">
+        <label>Login über</label>
+        <div class="login-badge" id="bookLoginType">--</div>
       </div>
       <div class="modal-field">
         <label>Datum & Uhrzeit</label>
@@ -1116,6 +1126,17 @@ function openBookingModal(terminalCode, slotBegin) {
   statusEl.textContent = statusText;
   statusEl.className = `modal-status ${statusCls}`;
 
+  // Determine login type based on terminal
+  const loginEl = document.getElementById('bookLoginType');
+  const hhlTerminals = ['CTA', 'BK', 'TCT'];
+  if (hhlTerminals.includes(terminalCode)) {
+    loginEl.textContent = 'Passify (HHLA)';
+    loginEl.className = 'login-badge passify';
+  } else {
+    loginEl.textContent = 'Conroo';
+    loginEl.className = 'login-badge conroo';
+  }
+
   currentBookingData = { terminalCode, slotBegin, terminal: terminal.terminal.name };
 
   // Reset form fields
@@ -1147,6 +1168,10 @@ function openTruckgate() {
   const plate = document.getElementById('bookPlate').value.trim();
   const driver = document.getElementById('bookDriver').value.trim();
 
+  // Determine login type
+  const hhlTerminals = ['CTA', 'BK', 'TCT'];
+  const loginType = hhlTerminals.includes(currentBookingData.terminalCode) ? 'passify' : 'conroo';
+
   // Build query params for web.truckgate.de
   const params = new URLSearchParams();
   params.set('terminal', currentBookingData.terminalCode);
@@ -1154,6 +1179,7 @@ function openTruckgate() {
   params.set('operation', op);
   params.set('size', size);
   params.set('reefer', reefer);
+  params.set('login', loginType);
   if (container) params.set('container', container);
   if (ref) params.set('ref', ref);
   if (plate) params.set('plate', plate);
@@ -1161,8 +1187,8 @@ function openTruckgate() {
 
   const url = `https://web.truckgate.de/booking?${params.toString()}`;
 
-  logMsg(`Weiterleitung: web.truckgate.de (${currentBookingData.terminal} ${fmtTime(currentBookingData.slotBegin)})`);
-  showToast('Öffne web.truckgate.de...');
+  logMsg(`Weiterleitung: web.truckgate.de (${currentBookingData.terminal} → ${loginType.toUpperCase()})`);
+  showToast(`Öffne web.truckgate.de via ${loginType.toUpperCase()}...`);
 
   window.open(url, '_blank');
 }
