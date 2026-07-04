@@ -193,6 +193,36 @@
   .notification-toast .text { font-size: 11px; line-height: 1.4; }
   .notification-toast .close { margin-left: auto; cursor: pointer; color: var(--muted); font-size: 14px; }
 
+  /* Persistent notification banner */
+  .alert-banner {
+    background: linear-gradient(135deg, #166534, #14532d);
+    border-bottom: 2px solid var(--green);
+    padding: 10px 20px;
+    display: none;
+    animation: bannerPulse 2s ease-in-out infinite;
+  }
+  .alert-banner.visible { display: block; }
+  @keyframes bannerPulse { 0%,100%{background:linear-gradient(135deg,#166534,#14532d)} 50%{background:linear-gradient(135deg,#15803d,#166534)} }
+  .alert-banner-inner {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .alert-banner .alert-icon { font-size: 18px; animation: ring 0.5s ease; }
+  @keyframes ring { 0%{transform:rotate(0)} 25%{transform:rotate(15deg)} 50%{transform:rotate(-15deg)} 75%{transform:rotate(10deg)} 100%{transform:rotate(0)} }
+  .alert-banner .alert-title { font-size: 13px; font-weight: 700; color: #fff; }
+  .alert-banner .alert-slots {
+    display: flex; gap: 6px; flex-wrap: wrap; flex: 1;
+  }
+  .alert-slot-tag {
+    background: rgba(255,255,255,.15); border-radius: 12px; padding: 2px 8px;
+    font-size: 11px; color: #fff; white-space: nowrap;
+  }
+  .alert-slot-tag .tag-time { font-family: monospace; font-weight: 600; margin-right: 4px; }
+  .alert-banner .alert-dismiss {
+    background: transparent; border: 1px solid rgba(255,255,255,.3); border-radius: 5px;
+    color: #fff; padding: 3px 10px; font-size: 10px; cursor: pointer;
+  }
+  .alert-banner .alert-dismiss:hover { background: rgba(255,255,255,.1); }
+
   .next-refresh { font-size: 10px; color: var(--muted); }
   .next-refresh .countdown { color: var(--cyan); font-family: monospace; }
 
@@ -222,6 +252,16 @@
     <button class="btn" id="btnSound" onclick="toggleSound()">&#128266; Ton</button>
     <button class="btn" id="btnPush" onclick="requestPush()">&#128276; Push</button>
     <button class="btn" id="btnLog" onclick="toggleLog()">&#128196; Log</button>
+  </div>
+</div>
+
+<!-- Alert Banner -->
+<div class="alert-banner" id="alertBanner">
+  <div class="alert-banner-inner">
+    <span class="alert-icon">&#128276;</span>
+    <span class="alert-title">Freie Slots verfügbar!</span>
+    <div class="alert-slots" id="alertSlots"></div>
+    <button class="alert-dismiss" onclick="dismissAlert()">Schließen</button>
   </div>
 </div>
 
@@ -317,8 +357,8 @@ let monPrevState = {};
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 // === Ton: drei laute Piepse ===
-function playAlert() {
-  if (!soundEnabled) return;
+function playAlert(force = false) {
+  if (!soundEnabled && !force) return;
   try {
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const now = audioCtx.currentTime;
@@ -430,18 +470,55 @@ function detectNewFreeSlots() {
       const isFree = info.slotAvailability === 0 || info.slotAvailability === 3;
       const wasFree = prev === 0 || prev === 3;
       if (isFree && !wasFree && prev !== undefined) {
-        alerts.push(`${t.terminal.name} ${fmtTime(slot.slotBegin)}`);
+        alerts.push({
+          terminal: t.terminal.name,
+          code: t.terminal.code,
+          time: fmtTime(slot.slotBegin),
+          slotBegin: slot.slotBegin
+        });
       }
       previousAvailability[key] = info.slotAvailability;
     }
   }
   if (alerts.length > 0) {
-    const text = `Freie Slots: ${alerts.slice(0, 3).join('; ')}`;
-    playAlert();
-    sendPush('Hamburg Slot Monitor', text);
-    showToast(text);
-    logMsg(text, 'alert');
+    // Always play sound when slots free up
+    playAlert(true);
+    // Show alert banner
+    showAlertBanner(alerts);
+    // Send push notifications
+    const pushText = `Freie Slots: ${alerts.slice(0, 5).map(a => `${a.terminal} ${a.time}`).join('; ')}`;
+    sendPush('Hamburg Slot Monitor — Freie Slots!', pushText);
+    // Show toast
+    showToast(`${alerts.length} neuer freier Slot${alerts.length > 1 ? 's' : ''}!`);
+    // Log
+    alerts.forEach(a => {
+      logMsg(`FREI: ${a.terminal} (${a.code}) — ${a.time}`, 'alert');
+    });
   }
+}
+
+// === Alert Banner ===
+function showAlertBanner(alerts) {
+  const banner = document.getElementById('alertBanner');
+  const slotsContainer = document.getElementById('alertSlots');
+
+  // Group by terminal
+  const grouped = {};
+  alerts.forEach(a => {
+    if (!grouped[a.code]) grouped[a.code] = { name: a.terminal, times: [] };
+    grouped[a.code].times.push(a.time);
+  });
+
+  // Render slot tags
+  slotsContainer.innerHTML = Object.values(grouped).map(g =>
+    `<span class="alert-slot-tag"><span class="tag-time">${g.times.join(', ')}</span>${g.name}</span>`
+  ).join('');
+
+  banner.classList.add('visible');
+}
+
+function dismissAlert() {
+  document.getElementById('alertBanner').classList.remove('visible');
 }
 
 // === Überwachung ===
